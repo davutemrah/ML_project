@@ -1,0 +1,251 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Machine Learning Project
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will be to use data from accelerometers on the `belt`, `forearm`, `arm`, and `dumbell` of `6 participant`. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+The five ways are exactly according to the specification (Class A), 
+throwing the elbows to the front (Class B), 
+lifting the dumbbell only halfway (Class C), 
+lowering the dumbbell only halfway (Class D) and 
+throwing the hips to the front (Class E). 
+
+Only Class A corresponds to correct performance. The goal of this project is to predict the manner in which they did the exercise, i.e., Class A to E. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Libraries
+```{r}
+rm(list = ls())
+library(dplyr)
+library(caret)
+```
+
+
+
+## GetData
+
+```{r}
+# import the data from the URLs
+trainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(trainurl, 
+                     na.strings = c("NA", "#DIV/0!", ""),
+                     header = TRUE)
+training$X <- NULL
+write.csv(training, file = "../data/final_training.csv")
+
+testing <- read.csv(testurl, 
+                     na.strings = c("NA", "#DIV/0!", ""),
+                     header = TRUE)
+testing$X <- NULL
+write.csv(testing, file = "../data/final_testing.csv")
+```
+
+## Exploratory Analysis
+
+Lets see what have in the data. The training dataset has 19622 observations and 159 variables, and the testing data set contains 20 observations and the same variables as the training set. We are trying to predict the outcome of the variable classe in the training set.
+
+### Import data
+
+```{r}
+# load data locally
+training <- read.csv("../data/final_training.csv", na.strings = c("NA", ""))
+training$X <- NULL
+dim(training)
+
+testing <- read.csv("../data/final_testing.csv", na.strings = c("NA", ""))
+testing$X <- NULL
+dim(testing)
+```
+
+### Data Cleaning
+
+We see there are many variables have more than 90% missing data. I hide the output since there are so many variables.
+
+```{r include=FALSE}
+sapply(training, function(x){
+    sum(is.na(x))/length(x)
+})
+```
+
+We should keep features that has no missing data, delete those having missing data in the training data. Then drop those variables in the test data.
+
+```{r}
+training <- training[, colSums(is.na(training)) == 0]
+testing <- testing[, colSums(is.na(testing)) == 0]
+```
+
+Testing data and training data two different variables. Classe is only in training data, and problem_id is only in testing data. Classe is the target variable
+
+```{r}
+setdiff(names(training), names(testing))
+setdiff(names(testing), names(training))
+```
+
+Let's see what we have in classe variable.
+
+```{r}
+table(training$classe)
+```
+
+## Alternative way to sync testing variable names
+
+```{r}
+#testing <- testing[, names(testing) %in% names(training)]
+```
+
+There are some other variables that has low predicting power. These are `user_name`, timestamp variables, new_window, num_window. We can drop these variables.
+```{r}
+table(training$user_name)
+table(training$new_window)
+# table(training$num_window)
+```
+
+```{r}
+training_df <- training[, -c(1:6)]
+dim(training_df)
+testing_df<- testing[, -c(1:6)]
+dim(testing_df)
+```
+
+The cleaned data sets trainData and testData both have 53 columns with the same first 52 variables and the last variable classe and problem_id individually. trainData has 19622 rows while testData has 20 rows.
+
+## Prediction Algorithms
+
+### Data splitting
+
+In order to get out-of-sample errors, we split the cleaned training set trainData into a training set (train, 70%) for prediction and a validation set (valid 30%) to compute the out-of-sample errors.
+
+```{r}
+set.seed(7826) 
+inTrain <- createDataPartition(training_df$classe, p = 0.7, list = FALSE)
+train <- training_df[inTrain, ]
+valid <- training_df[-inTrain, ]
+```
+
+
+## Algorithms
+
+We use classification trees and random forests to predict the outcome.
+
+### Classification trees
+
+In practice, k=10 when doing k-fold cross validation. Here we consider 10-fold cross validation (default setting in trainControl function is 10) when implementing the algorithm.
+
+Classification trees are **non-linear** models, data transformations, especially, monotone transformations may be less important (transformations that does not change the order of the values)
+
+#### Cross-validation
+
+```{r}
+control <- trainControl(method = "cv", number = 10)
+```
+
+#### Training the data
+
+```{r}
+fit_rpart <- train(classe ~ ., 
+                   data = train, 
+                   method = "rpart", 
+                   trControl = control)
+
+print(fit_rpart, digits = 3)
+```
+
+#### Plot the tree
+
+```{r, message=FALSE}
+library(rpart)
+library(rattle)
+
+fancyRpartPlot(fit_rpart$finalModel)
+```
+
+
+#### Validation
+
+```{r}
+# predict outcomes using validation set
+predict_rpart <- predict(fit_rpart, newdata = valid)
+
+# Show prediction result
+conf_rpart <- confusionMatrix(data = predict_rpart, 
+                              reference =  factor(valid$classe))
+conf_rpart
+```
+
+#### Overall Accuracy 
+
+```{r}
+(accuracy_rpart <- conf_rpart$overall[1])
+```
+
+From the confusion matrix, the accuracy rate is 0.5, and so the out-of-sample error rate is 0.5. We can say that using classification tree does not predict the outcome `classe` very well.
+
+### Random forests
+
+Since classification tree method does not perform well, we try random forest method instead.
+
+#### Training the model
+
+```{r}
+fit_rf <- train(classe ~ ., 
+                data = train, 
+                method = "rf", 
+                trControl = control)  ## cross validation k=10
+print(fit_rf, digits = 3)
+```
+
+#### Prediction on Valid data (Validation)
+
+```{r}
+# predict outcomes using validation set
+predict_rf <- predict(fit_rf, valid)
+```
+
+
+```{r}
+# Show prediction result
+(conf_rf <- confusionMatrix(data =  predict_rf, 
+                            reference = factor(valid$classe)))
+```
+
+#### Overall Accuracy 
+
+```{r}
+(accuracy_rf <- conf_rf$overall[1])
+```
+
+Very high accuracy, indeed. Random forest algorithm predicts way better than classification tree algorithm.
+
+The out-of-sample error rate is 0.008. 
+
+This may be due to the fact that many predictors are highly correlated. Random forests chooses a subset of predictors at each split and decorrelate the trees. This leads to high accuracy, although this algorithm is sometimes difficult to interpret and computationally inefficient.
+
+## Prediction on Testing Set
+
+Let's use random forests to predict the outcome variable `classe` for the testing set. Since this data does not have `classe`, we can just predict. We can't validate the result.
+ 
+```{r}
+(predict(fit_rf, testing_df))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
