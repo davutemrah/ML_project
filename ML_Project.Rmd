@@ -20,7 +20,7 @@ throwing the hips to the front (Class E).
 Only Class A corresponds to correct performance. The goal of this project is to predict the manner in which they did the exercise, i.e., Class A to E. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
 
 ## Libraries
-```{r}
+```{r, cache=TRUE}
 rm(list = ls())
 library(dplyr)
 library(caret)
@@ -95,17 +95,10 @@ Let's see what we have in classe variable.
 table(training$classe)
 ```
 
-## Alternative way to sync testing variable names
-
-```{r}
-#testing <- testing[, names(testing) %in% names(training)]
-```
-
 There are some other variables that has low predicting power. These are `user_name`, timestamp variables, new_window, num_window. We can drop these variables.
 ```{r}
 table(training$user_name)
 table(training$new_window)
-# table(training$num_window)
 ```
 
 ```{r}
@@ -149,7 +142,7 @@ control <- trainControl(method = "cv", number = 10)
 
 #### Training the data
 
-```{r}
+```{r, cache=TRUE}
 fit_rpart <- train(classe ~ ., 
                    data = train, 
                    method = "rpart", 
@@ -194,7 +187,7 @@ Since classification tree method does not perform well, we try random forest met
 
 #### Training the model
 
-```{r}
+```{r, cache=TRUE}
 fit_rf <- train(classe ~ ., 
                 data = train, 
                 method = "rf", 
